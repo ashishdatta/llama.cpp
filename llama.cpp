@@ -696,10 +696,12 @@ static const std::map<llm_arch, std::map<llm_tensor, std::string>> LLM_TENSOR_NA
             { LLM_TENSOR_ATTN_K,          "blk.%d.attn_k" },
             { LLM_TENSOR_ATTN_V,          "blk.%d.attn_v" },
             { LLM_TENSOR_ATTN_OUT,        "blk.%d.attn_output" },
-            { LLM_TENSOR_FFN_NORM,        "blk.%d.ffn_norm" },
+            //{ LLM_TENSOR_FFN_NORM,        "blk.%d.ffn_norm" },
             { LLM_TENSOR_FFN_GATE,        "blk.%d.ffn_gate" },
             { LLM_TENSOR_FFN_DOWN,        "blk.%d.ffn_down" },
             { LLM_TENSOR_FFN_UP,          "blk.%d.ffn_up" },
+            { LLM_TENSOR_ATTN_Q_NORM,     "blk.%d.attn_q_norm" },
+            { LLM_TENSOR_ATTN_K_NORM,     "blk.%d.attn_k_norm" },
         },
     },
     {
@@ -1690,6 +1692,7 @@ enum e_model {
     MODEL_4B,
     MODEL_7B,
     MODEL_8B,
+    MODEL_12B,
     MODEL_13B,
     MODEL_14B,
     MODEL_15B,
@@ -3822,6 +3825,7 @@ static void llm_load_hparams(
                 switch (hparams.n_layer) {
                     case 24: model.type = e_model::MODEL_1B; break;
                     case 32: model.type = e_model::MODEL_3B; break;
+                    case 40: model.type = e_model::MODEL_12B; break;
                     default: model.type = e_model::MODEL_UNKNOWN;
                }
             } break;
@@ -4964,17 +4968,25 @@ static bool llm_load_tensors(
                         layer.attn_norm_b = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_NORM, "bias", i), {n_embd});
 
                         layer.wq = ml.create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_Q,   "weight", i), {n_embd, n_embd});
-                        layer.wk = ml.create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_K,   "weight", i), {n_embd, n_embd_gqa});
-                        layer.wv = ml.create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_V,   "weight", i), {n_embd, n_embd_gqa});
+                        layer.wk = ml.create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_K,   "weight", i), {n_embd, 1280});
+                        layer.wv = ml.create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_V,   "weight", i), {n_embd, 1280});
                         layer.wo = ml.create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd, n_embd});
 
+                        if (n_layer >= 40){
+                            for (int i = 0; i < 32; ++i) {
+                                layer.attn_q_norm = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_Q_NORM,"weight", i), {hparams.n_embd_head_k, 1});
+                            }
+                            for (int i = 0; i < 8; ++i) {
+                                layer.attn_k_norm = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_K_NORM,"weight", i), {hparams.n_embd_head_k, 1});
+                            }
+                        }
                         // optional bias tensors, present in Stable LM 2 1.6B
-                        layer.bq = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_Q,   "bias", i), {n_embd},     false);
-                        layer.bk = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_K,   "bias", i), {n_embd_gqa}, false);
-                        layer.bv = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_V,   "bias", i), {n_embd_gqa}, false);
+                        //layer.bq = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_Q,   "bias", i), {n_embd},     false);
+                        //layer.bk = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_K,   "bias", i), {n_embd_gqa}, false);
+                        //layer.bv = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_V,   "bias", i), {n_embd_gqa}, false);
 
-                        layer.ffn_norm   = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd});
-                        layer.ffn_norm_b = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_FFN_NORM, "bias", i),   {n_embd});
+                        //layer.ffn_norm   = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd});
+                        //layer.ffn_norm_b = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_FFN_NORM, "bias", i),   {n_embd});
 
                         layer.ffn_gate = ml.create_tensor(ctx_split, tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff});
                         layer.ffn_down = ml.create_tensor(ctx_split, tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd});
@@ -7944,6 +7956,33 @@ struct llm_build_context {
                     cb(Vcur, "Vcur", il);
                 }
 
+                if (model.layers[il].attn_q_norm) {
+                   /*Qcur = ggml_view_3d(ctx0, Qcur, n_embd_head, n_head, n_tokens,
+                           ggml_element_size(Qcur) * n_embd_head,
+                           ggml_element_size(Qcur) * n_embd_head * n_head,
+                           0);
+                   cb(Qcur, "Qcur", il);
+                   Kcur = ggml_view_3d(ctx0, Kcur, n_embd_head, n_head, n_tokens,
+                           ggml_element_size(Qcur) * n_embd_head,
+                           ggml_element_size(Kcur) * n_embd_head * n_head_kv,
+                           0);
+                   cb(Kcur, "Kcur", il);
+
+                   */
+                   Qcur = llm_build_norm(ctx0, Qcur, hparams,
+                           model.layers[il].attn_q_norm,
+                           NULL,
+                           LLM_NORM, cb, il);
+                   cb(Qcur, "Qcur", il);
+
+                   Kcur = llm_build_norm(ctx0, Kcur, hparams,
+                           model.layers[il].attn_k_norm,
+                           NULL,
+                           LLM_NORM, cb, il);
+                   cb(Kcur, "Kcur", il);
+                }
+
+
                 Qcur = ggml_rope_custom(
                     ctx0, ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head,    n_tokens), inp_pos,
                     n_rot, rope_type, 0, n_orig_ctx, freq_base, freq_scale,
@@ -7975,11 +8014,11 @@ struct llm_build_context {
 
             // feed-forward network
             {
-                cur = llm_build_norm(ctx0, ffn_inp, hparams,
+                /*cur = llm_build_norm(ctx0, ffn_inp, hparams,
                         model.layers[il].ffn_norm,
                         model.layers[il].ffn_norm_b,
                         LLM_NORM, cb, il);
-                cb(cur, "ffn_norm", il);
+                cb(cur, "ffn_norm", il);*/
 
                 cur = llm_build_ffn(ctx0, cur,
                         model.layers[il].ffn_up,   NULL,
