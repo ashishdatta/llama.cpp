@@ -4974,12 +4974,12 @@ static bool llm_load_tensors(
 
                         if (n_layer >= 40){
                             for(int j = 0; j < 32; ++j) {
-                                layer.attn_q_norm = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_Q_NORM,"weight", i), {hparams.n_embd_head_k, hparams.n_head});
+                                layer.attn_q_norm = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_Q_NORM,"weight", i), {hparams.n_embd_head_k});
                             }
                             //printf("%d n_embd_head_k", hparams.n_embd_head_k);
                             printf("n_embd_head_k: %d, n_head: %d, n_head_kv: %d, n_embd: %d, n_embd_gqa: %d\n", hparams.n_embd_head_k, hparams.n_head, hparams.n_head_kv, n_embd, n_embd_gqa);
-                            for(int k=0; k< 8; ++j) {
-                                layer.attn_k_norm = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_K_NORM,"weight", i), {hparams.n_embd_head_k, hparams.n_head_kv});
+                            for(int k=0; k< 8; ++k) {
+                                layer.attn_k_norm = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_K_NORM,"weight", i), {hparams.n_embd_head_k});
                             }
                         }
                         // optional bias tensors, present in Stable LM 2 1.6B
@@ -7987,6 +7987,7 @@ struct llm_build_context {
                            NULL,
                            LLM_NORM, cb, il);
                    cb(Kcur, "Kcur", il);
+                   printf("Finished building norms\n");
                 }
 
 
