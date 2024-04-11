@@ -1400,6 +1400,7 @@ class StableLMModel(Model):
         hparams = self.hparams
         block_count = hparams["num_hidden_layers"]
 
+        print("heeeeeeeeeeeeeeerrrrrrrrrrrrrrrrrreeeeeeeeeeeeeeeeeeeeeeeeeeee")
         self.gguf_writer.add_name(self.dir_model.name)
         self.gguf_writer.add_context_length(hparams["max_position_embeddings"])
         self.gguf_writer.add_embedding_length(hparams["hidden_size"])
@@ -1413,6 +1414,7 @@ class StableLMModel(Model):
             )
         )
         self.gguf_writer.add_head_count(hparams["num_attention_heads"])
+        self.gguf_writer.add_head_count_kv(hparams["num_key_value_heads"])
         self.gguf_writer.add_parallel_residual(
             hparams["use_parallel_residual"]
             if "use_parallel_residual" in hparams

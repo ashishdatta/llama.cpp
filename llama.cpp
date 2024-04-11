@@ -4968,17 +4968,15 @@ static bool llm_load_tensors(
                         layer.attn_norm_b = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_NORM, "bias", i), {n_embd});
 
                         layer.wq = ml.create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_Q,   "weight", i), {n_embd, n_embd});
-                        layer.wk = ml.create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_K,   "weight", i), {n_embd, 1280});
-                        layer.wv = ml.create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_V,   "weight", i), {n_embd, 1280});
+                        layer.wk = ml.create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_K,   "weight", i), {n_embd, n_embd_gqa});
+                        layer.wv = ml.create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_V,   "weight", i), {n_embd, n_embd_gqa});
                         layer.wo = ml.create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd, n_embd});
 
                         if (n_layer >= 40){
-                            for (int i = 0; i < 32; ++i) {
-                                layer.attn_q_norm = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_Q_NORM,"weight", i), {hparams.n_embd_head_k, 1});
-                            }
-                            for (int i = 0; i < 8; ++i) {
-                                layer.attn_k_norm = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_K_NORM,"weight", i), {hparams.n_embd_head_k, 1});
-                            }
+                            layer.attn_q_norm = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_Q_NORM,"weight", i), {hparams.n_embd_head_k, hparams.n_head});
+                            //printf("%d n_embd_head_k", hparams.n_embd_head_k);
+                            printf("n_embd_head_k: %d, n_head: %d, n_head_kv: %d, n_embd: %d, n_embd_gqa: %d\n", hparams.n_embd_head_k, hparams.n_head, hparams.n_head_kv, n_embd, n_embd_gqa);
+                            layer.attn_k_norm = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_K_NORM,"weight", i), {hparams.n_embd_head_k, hparams.n_head_kv});
                         }
                         // optional bias tensors, present in Stable LM 2 1.6B
                         //layer.bq = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_Q,   "bias", i), {n_embd},     false);
@@ -5441,6 +5439,7 @@ static bool llm_load_tensors(
                         layer.attn_norm = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd});
 
                         if (n_layer >= 64){
+                            printf("n_embd_head_k: %d, n_head: %d, n_head_kv: %d, n_embd: %d, n_embd_gqa: %d\n", hparams.n_embd_head_k, hparams.n_head, hparams.n_head_kv, n_embd, n_embd_gqa);
                             layer.attn_q_norm = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_Q_NORM, "weight", i), {hparams.n_embd_head_k, hparams.n_head});
                             layer.attn_k_norm = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_K_NORM, "weight", i), {hparams.n_embd_head_k, hparams.n_head_kv});
                         }
@@ -7957,18 +7956,22 @@ struct llm_build_context {
                 }
 
                 if (model.layers[il].attn_q_norm) {
-                   /*Qcur = ggml_view_3d(ctx0, Qcur, n_embd_head, n_head, n_tokens,
+                   Qcur = ggml_view_3d(ctx0, Qcur, n_embd_head, n_head, n_tokens,
                            ggml_element_size(Qcur) * n_embd_head,
                            ggml_element_size(Qcur) * n_embd_head * n_head,
                            0);
                    cb(Qcur, "Qcur", il);
-                   Kcur = ggml_view_3d(ctx0, Kcur, n_embd_head, n_head, n_tokens,
-                           ggml_element_size(Qcur) * n_embd_head,
+                   printf("Hereee");
+                   Kcur = ggml_view_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens,
+                           ggml_element_size(Kcur) * n_embd_head,
                            ggml_element_size(Kcur) * n_embd_head * n_head_kv,
                            0);
+                    printf("N_embd_head: %d\n", n_embd_head);
+                   fprintf(stderr, "%s: tensor has wrong shape in model file: got [%5d, %5d], expected [%5d, %5d]\n",
+                        __func__, (int) Kcur->ne[0], (int) Kcur->ne[1], ggml_element_size(Kcur) * n_embd_head, ggml_element_size(Kcur) * n_embd_head * n_head_kv);
                    cb(Kcur, "Kcur", il);
 
-                   */
+
                    Qcur = llm_build_norm(ctx0, Qcur, hparams,
                            model.layers[il].attn_q_norm,
                            NULL,
@@ -8009,6 +8012,7 @@ struct llm_build_context {
                 inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
             }
 
+            struct ggml_tensor * attn_out = cur;
             struct ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
             cb(ffn_inp, "ffn_inp", il);
 
@@ -8029,8 +8033,13 @@ struct llm_build_context {
                 cb(cur, "ffn_out", il);
             }
 
-            cur = ggml_add(ctx0, cur, ffn_inp);
+            // add together residual + FFN + self-attention
+            cur = ggml_add(ctx0, cur, inpL);
+            cur = ggml_add(ctx0, cur, attn_out);
             cb(cur, "l_out", il);
+
+            //cur = ggml_add(ctx0, cur, ffn_inp);
+            //cb(cur, "l_out", il);
 
             // input for next layer
             inpL = cur;
@@ -9530,6 +9539,9 @@ struct llm_build_context {
                                 ggml_element_size(Kcur) * n_embd_head,
                                 ggml_element_size(Kcur) * n_embd_head * n_head_kv,
                                 0);
+                    printf("N_embd_head: %d\n", n_embd_head);
+                   fprintf(stderr, "%s: tensor has wrong shape in model file: got [%5d, %5d], expected [%5d, %5d]\n",
+                        __func__, (int) Kcur->ne[0], (int) Kcur->ne[1], ggml_element_size(Kcur) * n_embd_head, ggml_element_size(Kcur) * n_embd_head * n_head_kv);
                     cb(Kcur, "Kcur", il);
 
                     Qcur = llm_build_norm(ctx0, Qcur, hparams,
