@@ -228,6 +228,7 @@ class Model(ABC):
                 self.ftype == 1
                 and data_dtype == np.float32
                 and name.endswith(".weight")
+                and not new_name.endswith("_norm.weight")
                 and n_dims == 2
             ):
                 data = data.astype(np.float16)
@@ -1386,21 +1387,35 @@ class PersimmonModel(Model):
 @Model.register(
     "StableLmForCausalLM", "StableLMEpochForCausalLM", "LlavaStableLMEpochForCausalLM"
 )
-class StableLMModel(Model):
+class StableLM2Model(Model):
     model_arch = gguf.MODEL_ARCH.STABLELM
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        model_arch = (
+            gguf.MODEL_ARCH.STABLELM
+            if self.hparams["num_hidden_layers"] < 40
+            else gguf.MODEL_ARCH.STABLELM2
+        )
+        self.gguf_writer = gguf.GGUFWriter(
+            self.fname_out,
+            gguf.MODEL_ARCH_NAMES[model_arch],
+            endianess=self.endianess,
+            use_temp_file=False,
+        )
 
     def set_vocab(self):
         if (self.dir_model / "tokenizer.json").is_file():
             self._set_vocab_gpt2()
         else:
-            # StableLM 2 1.6B uses a vocab in a similar format to Qwen's vocab
+            # StableLM 2 uses a vocab in a similar format to Qwen's vocab
             self._set_vocab_qwen()
 
     def set_gguf_parameters(self):
+        super().set_gguf_parameters()
         hparams = self.hparams
         block_count = hparams["num_hidden_layers"]
 
-        print("heeeeeeeeeeeeeeerrrrrrrrrrrrrrrrrreeeeeeeeeeeeeeeeeeeeeeeeeeee")
         self.gguf_writer.add_name(self.dir_model.name)
         self.gguf_writer.add_context_length(hparams["max_position_embeddings"])
         self.gguf_writer.add_embedding_length(hparams["hidden_size"])
@@ -1881,7 +1896,7 @@ class QwenModel(Model):
             self.gguf_writer.add_tensor(new_name, data)
 
 
-@Model.register("Qwen2ForCausalLM")
+@Model.register("wen2ForCausalLM")
 class Qwen2Model(Model):
     model_arch = gguf.MODEL_ARCH.QWEN2
 
@@ -2824,7 +2839,6 @@ def main() -> None:
         "f32": gguf.GGMLQuantizationType.F32,
         "f16": gguf.GGMLQuantizationType.F16,
     }
-
     if args.outfile is not None:
         fname_out = args.outfile
     else:

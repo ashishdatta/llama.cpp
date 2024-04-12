@@ -3639,6 +3639,7 @@ static struct ggml_tensor * ggml_add_impl(
         struct ggml_tensor * a,
         struct ggml_tensor * b,
         bool inplace) {
+    //printf("a (%d, %d) b (%d, %d)\n", (int) a->ne[0], (int) a->ne[1], (int) b->ne[0], (int) b->ne[1]);
     GGML_ASSERT(ggml_can_repeat(b, a));
 
     bool is_node = false;
@@ -4980,9 +4981,6 @@ struct ggml_tensor * ggml_reshape_3d(
         int64_t               ne1,
         int64_t               ne2) {
     GGML_ASSERT(ggml_is_contiguous(a));
-    printf("%ld\n", ggml_nelements(a));
-    fprintf(stderr, "%s: tensor has wrong shape in model file: got [%5d, %5d], expected [%5d, %5d]\n",
-        __func__, (int) a->ne[0], (int) a->ne[1], ne0, ne1);
 
     GGML_ASSERT(ggml_nelements(a) == ne0*ne1*ne2);
 
